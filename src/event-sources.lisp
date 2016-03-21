@@ -80,13 +80,6 @@
   (:make ((action callback &key (error-handler #'(lambda (c) (format nil "io-event-source error: ~A" c))) (mode :default))
      (let ((instance (make-instance 'io-event-source :mode mode :error-handler error-handler)))
        (setf (action instance) (lambda ()
-                                 ;(macrolet ((with-same-handler (form (cases (arg) handler))
-                                 ;             `(handler-case ,form
-                                 ;                ,@(mapcar #'(lambda (case)
-                                 ;                              `(,case (,arg) ,handler))
-                                 ;                          cases))))
-                                 ;  (with-same-handler (funcall action)
-                                 ;    ((list errors) (c) (funcall error-handler c)))))
                                  (handler-case (funcall action)
                                    (end-of-file (c) (funcall error-handler c))))
              (callback instance) callback)
@@ -109,7 +102,4 @@
        (setf (action   instance) action
              (callback instance) callback)
        instance))))
-            
 
-
- 

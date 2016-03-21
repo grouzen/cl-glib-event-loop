@@ -30,7 +30,13 @@ written in Common Lisp.
 
 ```
 
-There are 4 different predefined event sources: ui-event-source, io-event-source,
-timer-event-source, idle-event-source; and you can easily define your own kind of
-event source by using `evloop:define-event-source macro`.
+There are 4 different predefined event sources:
+
+* ui-event-source    - high-priority source for dealing with UI events
+* io-event-source    - receive events reading from various I/O sources 
+* timer-event-source - periodic or one-time timer events
+* idle-event-source  - puts 'idle' events into your event queue
+
+and you can easily define your own kind of event source by using
+`evloop:define-event-source macro`.
 

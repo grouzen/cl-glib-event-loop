@@ -9,7 +9,7 @@
 (asdf:defsystem cl-glib-event-loop
   :name "cl-glib-event-loop"
   :author "Michael Nedokushev <michael.nedokushev@gmail.com>"
-  :license "Lisp-LGPL"
+  :license "MIT"
   :depends-on (:bordeaux-threads :alexandria)
   :serial t
   :components ((:module "src"
