@@ -10,7 +10,9 @@ written in Common Lisp.
 
 ;; Create a new event-loop instance (context)
 (let ((evl (make-instance 'evloop:event-loop))) 
-  ;; Attach as much as you want a number of event sources to the event loop 
+  ;; Attach any number of event sources to the evl instance.
+  ;; Each event source has a mandatory callback function which
+  ;; you can use to react on events.
   (evloop:attach-source evl (evloop:make-timer-event-source
                              #'(lambda (evloop src event)
                                  (declare (ignore evloop src event))
