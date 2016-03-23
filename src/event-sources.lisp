@@ -66,13 +66,12 @@
                            (loop :while alive
                               :do (let ((ret (funcall action)))
                                     (bt:with-lock-held ((lock evloop))
-                                      (push ret events))))
-                           (detach-source evloop evsource)))))
+                                      (push ret events))))))))
       (setf thread new-thread))))
 
 (defmethod event-source-stop ((evsource event-source))
   (with-slots (thread alive) evsource
-    (when (bt:thread-alive-p thread)
+    (when (and thread (bt:thread-alive-p thread))
       (bt:destroy-thread thread)
       (setf thread nil
             alive nil))))
