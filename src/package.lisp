@@ -12,6 +12,8 @@
            #:detach-source
            #:event-loop-run
            #:event-loop-stop
+           #:event-loop-run-sources
+           #:event-loop-stop-sources
            #:event-loop-iterate
            #:set-mode
            #:running-p

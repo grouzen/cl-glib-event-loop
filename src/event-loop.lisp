@@ -33,9 +33,8 @@
   (eql (state evloop) :running))
 
 (defmethod event-loop-run ((evloop event-loop) &key (sleep .2))
-  (with-slots (sources state lock) evloop
-    (loop :for (k v) :on sources :by #'cddr
-       :do (event-source-run evloop v))
+  (with-slots (state lock) evloop
+    (event-loop-run-sources evloop)
     (setf state :running)
     (loop :while (eql state :running)
        :do (progn
@@ -44,13 +43,18 @@
 
 (defmethod event-loop-stop ((evloop event-loop))
   (with-slots (sources state) evloop
-    (loop :for (k v) :on sources :by #'cddr
-       :do (with-slots (thread alive) v
-             (when (bt:thread-alive-p thread)
-               (bt:destroy-thread thread)
-               (setf thread nil
-                     alive nil))))
+    (event-loop-stop-sources evloop)
     (setf state :stopped)))
+
+(defmethod event-loop-stop-sources ((evloop event-loop))
+  (with-slots (sources) evloop
+    (loop :for (k v) :on sources :by #'cddr
+       :do (event-source-stop v))))
+
+(defmethod event-loop-run-sources ((evloop event-loop))
+  (with-slots (sources) evloop
+    (loop :for (k v) :on sources :by #'cddr
+       :do (event-source-run evloop v))))
 
 (defmethod event-loop-iterate ((evloop event-loop))
   (with-slots (prisrcs mode lock) evloop
@@ -67,3 +71,4 @@
             ,@body
             (event-loop-run ,evloop :sleep ,sleep))
        (event-loop-stop ,evloop))))
+

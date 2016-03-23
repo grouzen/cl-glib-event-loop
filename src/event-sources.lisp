@@ -59,15 +59,23 @@
     (setf prisrcs (make-prisrcs% evloop))))
 
 (defmethod event-source-run ((evloop event-loop) (evsource event-source))
-  (let ((thread (bt:make-thread
-                 #'(lambda ()
-                     (loop :while (alive evsource)
-                        :do (let ((ret (funcall (action evsource))))
-                              (bt:with-lock-held ((lock evloop))
-                                (push ret (events evsource)))))
-                     (detach-source evloop evsource)))))
-      (setf (thread evsource) thread
-            (alive  evsource) t)))
+  (with-slots (alive action events thread) evsource
+    (setf alive t)
+    (let ((new-thread (bt:make-thread
+                       #'(lambda ()
+                           (loop :while alive
+                              :do (let ((ret (funcall action)))
+                                    (bt:with-lock-held ((lock evloop))
+                                      (push ret events))))
+                           (detach-source evloop evsource)))))
+      (setf thread new-thread))))
+
+(defmethod event-source-stop ((evsource event-source))
+  (with-slots (thread alive) evsource
+    (when (bt:thread-alive-p thread)
+      (bt:destroy-thread thread)
+      (setf thread nil
+            alive nil))))
 
 
 (define-event-source ui-event-source (:priority +ui-priority+ :getfn nil)
@@ -84,6 +92,25 @@
                                    (end-of-file (c) (funcall error-handler c))))
              (callback instance) callback)
        instance))))
+
+;; (define-event-source io-event-source (:fh nil :priority +io-priority+ :error-handler nil)
+;;   (:make ((fh callback &key (error-handler #'(lambda (c) (format nil "io-event-source error: ~A" c))) (mode :default))
+;;      (labels ((get-read-fn (lambda (fh)
+;;                              (let ((seltype (stream-element-type fh)))
+;;                                (cond ((listp seltype) #'read-byte)
+;;                                      ((eq seltype 'character) #'read-char)))))
+;;               (handle-fh (lambda (fh)
+;;                            (let* ((read-fn (get-read-fn fh))
+;;                                   (update-c #'(lambda () (funcall read-fn fh nil :end))))
+;;                              (do ((c   (funcall #'update-c) (funcall #'update-c)))
+;;                                  ((eq c :end) t)
+;;                                (make-array 128   
+;;      (let ((instance (make-instance 'io-event-source :mode mode :error-handler error-handler)))
+;;        (setf (action instance) (lambda ()
+;;                                  (handler-case (handle-fh fh)
+;;                                    (end-of-file (c) (funcall error-handler c))))
+;;              (callback instance) callback)
+;;        instance))))
 
 (define-event-source timer-event-source (:priority +timer-priority+ :one-shot nil)
   (:make ((callback &key sleep (one-shot nil) (mode :default))

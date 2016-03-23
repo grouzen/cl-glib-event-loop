@@ -14,7 +14,7 @@ written in Common Lisp.
   (evloop:attach-source evl (evloop:make-timer-event-source
                              #'(lambda (evloop src event)
                                  (declare (ignore evloop src event))
-                                 (format t "Time is ticking...~%"))
+                                 (format t "Timer is ticking...~%"))
                              :sleep 1.0))
   ;; Make it alive!
   (evloop:event-loop-run evl))
@@ -24,9 +24,8 @@ written in Common Lisp.
   (evloop:attach-source evl (evloop:make-timer-event-source
                              #'(lambda (evloop src event)
                                  (declare (ignore evloop src event))
-                                 (format t "Time is ticking...~%"))
-                             :sleep 1.0))
-  (evloop:event-loop-run evl))
+                                 (format t "Timer is ticking...~%"))
+                             :sleep 1.0)))
 
 ```
 
