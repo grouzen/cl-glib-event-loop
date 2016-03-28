@@ -18,6 +18,7 @@
    (sources :accessor sources :initarg :sources :initform nil)
    (prisrcs :accessor prisrcs :initarg :prisrcs :initform nil)
    (state   :accessor state   :initarg :state   :initform :stopped)
+   (evlthrd :accessor evlthrd :initarg :evlthrd :initform nil)
    (lock    :accessor lock    :initarg :lock    :initform (bt:make-lock))))
 
 (defmethod print-object ((obj event-loop) stream)
@@ -32,18 +33,27 @@
 (defmethod running-p ((evloop event-loop))
   (eql (state evloop) :running))
 
-(defmethod event-loop-run ((evloop event-loop) &key (sleep .2))
-  (with-slots (state lock) evloop
+(defmethod event-loop-run ((evloop event-loop) &key detach (sleep .2))
+  (with-slots (state evlthrd lock) evloop
     (event-loop-run-sources evloop)
     (setf state :running)
-    (loop :while (eql state :running)
-       :do (progn
-             (event-loop-iterate evloop)
-             (sleep sleep)))))
+    (let ((dfn #'(lambda ()
+                   (loop
+                      :while (eql (state evloop) :running)
+                      :do (progn
+                            (event-loop-iterate evloop)
+                            (sleep sleep))))))
+      (if detach
+          (setf evlthrd (bt:make-thread dfn :name "event-loop-main-thread"))
+          (funcall dfn)))))
 
 (defmethod event-loop-stop ((evloop event-loop))
-  (with-slots (sources state) evloop
+  (with-slots (sources evlthrd state) evloop
     (event-loop-stop-sources evloop)
+    (when evlthrd
+      (bt:destroy-thread evlthrd)
+      ;; FIXME: possibly it may reach here never
+      (setf evlthrd nil))
     (setf state :stopped)))
 
 (defmethod event-loop-stop-sources ((evloop event-loop))
@@ -61,14 +71,18 @@
     (loop :for src :in prisrcs
        :do (with-slots (events callback) src
              (bt:with-lock-held (lock)
-               (loop :while (> (length events) 0)
-                  :do (funcall callback evloop src (pop events))))))))
+               (let ((revents (reverse events)))
+                 (loop
+                    :while (> (length revents) 0)
+                    :do (funcall callback evloop src (pop revents)))
+                 (setf events nil)))))))
 
-(defmacro with-event-loop ((evloop &key (sleep .2)) &body body)
+(defmacro with-event-loop ((evloop &key detach (sleep .2)) &body body)
   `(let ((,evloop (make-instance 'evloop:event-loop)))
      (unwind-protect
           (progn
             ,@body
-            (event-loop-run ,evloop :sleep ,sleep))
-       (event-loop-stop ,evloop))))
+            (event-loop-run ,evloop :detach ,detach :sleep ,sleep))
+       (unless ,detach
+         (event-loop-stop ,evloop)))))
 

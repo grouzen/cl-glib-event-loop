@@ -24,22 +24,9 @@
    (action   :accessor action   :initarg :action   :initform nil)
    (callback :accessor callback :initarg :callback :initform nil)))
 
-(defmacro define-event-source (source-class (&rest initargs) &body body)
-  (let* ((direct-slots (loop :for (slot initform) :on initargs :by #'cddr
-                          :collect (let ((slot-name (find-symbol (symbol-name slot))))
-                                     (list slot-name :accessor slot-name
-                                           :initarg slot :initform initform))))
-         (make      (getf (car body) :make))
-         (make-name (alexandria:symbolicate 'make '- `,source-class))
-         (make-args (car make))
-         (make-body (cdr make)))
-    `(progn
-       (defclass ,source-class (event-source) ,direct-slots)
-       (defun ,make-name ,make-args ,@make-body)
-       (export '(,source-class ,make-name)))))
-
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-;; Attaching/detaching sources to/from the event loop's instance.
+;; Attaching/detaching sources to/from an event loop instance
 ;;
 
 (defmethod make-prisrcs% ((evloop event-loop))
@@ -58,12 +45,18 @@
     (remf sources (id evsource))
     (setf prisrcs (make-prisrcs% evloop))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;; Run/Stop event sources
+;;
+
 (defmethod event-source-run ((evloop event-loop) (evsource event-source))
   (with-slots (alive action events thread) evsource
     (setf alive t)
     (let ((new-thread (bt:make-thread
                        #'(lambda ()
-                           (loop :while alive
+                           (loop
+                              :while alive
                               :do (let ((ret (funcall action)))
                                     (bt:with-lock-held ((lock evloop))
                                       (push ret events))))))))
@@ -76,56 +69,61 @@
       (setf thread nil
             alive nil))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;; Event sources
+;;
 
-(define-event-source ui-event-source (:priority +ui-priority+ :getfn nil)
-  (:make ((callback &key getfn)
-     (let ((instance (make-instance 'ui-event-source :callback callback)))
-       (setf (action instance) (lambda () (funcall (or getfn (getfn instance)))))
-       instance))))
+(defmacro define-event-source (source-class priority make-args &body action)
+  (let* ((make-name (alexandria:symbolicate 'make '- `,source-class))
+         (inst-var  (gensym)))
+    `(progn
+       ;; Define a new class represents a particular event source            
+       (defclass ,source-class (event-source) ())
+       ;; Define a 'constructor/maker' for this event source,
+       ;; which automatically does the following:
+       ;; - creates an instance
+       ;; - provides slots of the instance as variables available inside `make-body`
+       ;; - sets a callback for the instance
+       (defun ,make-name (cb &key ,@make-args)
+         (let ((,inst-var (make-instance ',source-class)))
+           (with-slots (priority callback action) ,inst-var
+             (setf priority ,priority
+                   callback cb
+                   action   #'(lambda () ,@action))
+             ,inst-var)))
+       ;; Explicitly export the new class and its custom contstructor
+       (export '(,source-class ,make-name)))))
 
-(define-event-source io-event-source (:priority +io-priority+ :error-handler nil)
-  (:make ((action callback &key (error-handler #'(lambda (c) (format nil "io-event-source error: ~A" c))) (mode :default))
-     (let ((instance (make-instance 'io-event-source :mode mode :error-handler error-handler)))
-       (setf (action instance) (lambda ()
-                                 (handler-case (funcall action)
-                                   (end-of-file (c) (funcall error-handler c))))
-             (callback instance) callback)
-       instance))))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;; Basic event sources
+;;
 
-;; (define-event-source io-event-source (:fh nil :priority +io-priority+ :error-handler nil)
-;;   (:make ((fh callback &key (error-handler #'(lambda (c) (format nil "io-event-source error: ~A" c))) (mode :default))
-;;      (labels ((get-read-fn (lambda (fh)
-;;                              (let ((seltype (stream-element-type fh)))
-;;                                (cond ((listp seltype) #'read-byte)
-;;                                      ((eq seltype 'character) #'read-char)))))
-;;               (handle-fh (lambda (fh)
-;;                            (let* ((read-fn (get-read-fn fh))
-;;                                   (update-c #'(lambda () (funcall read-fn fh nil :end))))
-;;                              (do ((c   (funcall #'update-c) (funcall #'update-c)))
-;;                                  ((eq c :end) t)
-;;                                (make-array 128   
-;;      (let ((instance (make-instance 'io-event-source :mode mode :error-handler error-handler)))
-;;        (setf (action instance) (lambda ()
-;;                                  (handler-case (handle-fh fh)
-;;                                    (end-of-file (c) (funcall error-handler c))))
-;;              (callback instance) callback)
-;;        instance))))
+;;
+;; FIXME:
+;;   incorporate "poll/select" mechanics for io-event-source
+;;
 
-(define-event-source timer-event-source (:priority +timer-priority+ :one-shot nil)
-  (:make ((callback &key sleep (one-shot nil) (mode :default))
-     (let ((instance (make-instance 'timer-event-source :one-shot one-shot :mode mode)))
-       (setf (action   instance) (lambda ()
-                                   (sleep sleep)
-                                   (when (one-shot instance)
-                                     (setf (alive  instance) nil
-                                           (thread instance) nil)))
-             (callback instance) callback)
-       instance))))
+;; (define-event-source io-event-source +io-priority+
+;;     (io-source error-handler)
+;;   (let* ((elt  (stream-element-type io-source))
+;;          (rfn  (cond ((eq elt 'character) #'read-char)
+;;                      (t #'read-byte))))
+;;     (coerce (loop
+;;                :for c = (funcall rfn io-source nil :eof)
+;;                :while (not (eq c :eof))
+;;                :collect c)
+;;             'vector)))
+                   
+(define-event-source timer-event-source +timer-priority+
+    (period)
+  (sleep period))
+        
+(define-event-source ui-event-source +ui-priority+
+    (getfn)
+  (funcall getfn))
 
-(define-event-source idle-event-source (:priority +idle-priority+)
-  (:make ((action callback &key (mode :default))
-     (let ((instance (make-instance 'idle-event-source :mode mode)))
-       (setf (action   instance) action
-             (callback instance) callback)
-       instance))))
-
+(define-event-source idle-event-source +idle-priority+
+    ()
+  t)
